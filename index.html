@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b1522">
+<meta name="description" content="AR Sketch không marker: chọn ảnh, chạm 4 góc mặt phẳng, neo ảnh theo chuyển động camera bằng optical flow và ORB.">
+<title>AR Sketch — Neo ảnh không cần mã</title>
+<style>
+:root{color-scheme:dark;--bg:#091322;--surface:#142338;--line:#32465c;--text:#f1f7ff;--muted:#adbed3;--accent:#79edcf;--warn:#ffbf76}
+*{box-sizing:border-box}body,html{margin:0;overflow:hidden;height:100%;background:var(--bg);color:var(--text);font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif}button,input{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}button:disabled{opacity:.45;cursor:default}
+.app{height:100vh;height:100dvh;position:relative;overflow:hidden}.stage{position:absolute;inset:0;overflow:hidden;touch-action:none;background:radial-gradient(circle at 50% 44%,#1d3950,#0b1421 72%)}
+#camera{position:absolute;width:100%;height:100%;object-fit:cover;inset:0;opacity:0;transition:opacity .2s} .stage.online #camera{opacity:1}
+.stage:after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,#0007,transparent 24%,transparent 67%,#0008)}
+#photoPlane{position:absolute;top:0;left:0;width:800px;height:1100px;transform-origin:0 0;pointer-events:none;display:none;will-change:transform;overflow:hidden}
+#photoInner{width:100%;height:100%;transform-origin:center center;display:flex;align-items:center;justify-content:center}
+#photo{width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-drag:none}
+#quad{position:absolute;inset:0;height:100%;width:100%;z-index:2;pointer-events:none;overflow:visible}
+#quad polygon{stroke:var(--accent);fill:rgba(121,237,207,.08);stroke-width:2.5;stroke-dasharray:8 5;vector-effect:non-scaling-stroke}
+#quad circle{fill:var(--accent);stroke:#06141d;stroke-width:3;vector-effect:non-scaling-stroke}
+#quad text{fill:white;font-weight:900;font-size:19px;paint-order:stroke;stroke:#081622;stroke-width:4}
+#quad .line{stroke:#fff9;stroke-width:2;stroke-dasharray:6 5;vector-effect:non-scaling-stroke}
+.guide{position:absolute;z-index:3;top:calc(env(safe-area-inset-top) + 78px);left:50%;transform:translateX(-50%);padding:9px 13px;text-align:center;max-width:min(92%,400px);border-radius:12px;background:#081521d9;border:1px solid #6a80996e;color:#e9f6ff;font-size:12px;line-height:1.45;pointer-events:none}
+.top{position:absolute;z-index:5;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 12px) 15px 10px;pointer-events:none}
+.brand{display:flex;align-items:center;gap:10px}.mark{width:38px;height:38px;border-radius:13px;background:var(--accent);display:grid;place-items:center;color:#0d2c35;font-size:21px;font-weight:900}.brand b{display:block;font-size:16px}.brand small{display:block;color:#bfd0df;font-size:10px;margin-top:2px;letter-spacing:.2px}.top button{pointer-events:auto;background:#112237cc;color:#fff;border:1px solid #ffffff3b;border-radius:11px;padding:10px 12px;font-weight:700}
+.status{position:absolute;z-index:4;top:calc(env(safe-area-inset-top) + 132px);left:50%;transform:translateX(-50%);border:1px solid #ffffff30;border-radius:30px;padding:7px 12px;color:#d3e5f2;background:#0c1929d9;font-size:11px;max-width:95%;white-space:nowrap;pointer-events:none}.dot{display:inline-block;background:var(--warn);width:8px;height:8px;border-radius:100%;margin-right:6px}.status.ok .dot{background:var(--accent)}.status.bad .dot{background:#fb8484}
+.panel{position:absolute;z-index:6;bottom:0;left:0;right:0;background:#111f31f7;border:1px solid #ffffff20;border-bottom:0;border-radius:22px 22px 0 0;padding:12px 15px calc(env(safe-area-inset-bottom) + 13px);max-height:min(70dvh,555px);overflow-y:auto;box-shadow:0 -15px 50px #0006;overscroll-behavior:contain}
+.grip{width:35px;height:4px;border-radius:8px;background:#5a748d;margin:0 auto 12px}
+.actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-bottom:11px}
+.action{border:1px solid #3b5367;background:#20344a;color:#fff;border-radius:11px;min-height:52px;padding:7px 4px;font-size:12px;font-weight:700}.action.primary{background:var(--accent);border-color:var(--accent);color:#09282e}.action.active{border-color:var(--accent);color:var(--accent)}
+.track-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0 12px}
+.track-actions .action{min-height:53px;font-size:13px}.track-actions .action:nth-child(2){background:#245e4e;border-color:#4ec4a5}
+.label{font-size:12px;color:#dae9f5;font-weight:650;margin:7px 0}.muted{font-size:11px;color:var(--muted);line-height:1.55}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:8px 0 14px}.mode{background:#1b3045;border:1px solid #304458;color:#b9cce0;border-radius:8px;padding:9px 4px;font-size:12px;font-weight:650}.mode.active{color:#0d302d;background:var(--accent);border-color:var(--accent)}
+.controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 15px}.control>div{display:flex;justify-content:space-between;gap:5px;align-items:center}.control label{color:#dbe8f4;font-size:11px}.control output{color:var(--accent);font-size:11px;font-weight:750}input[type=range]{width:100%;accent-color:var(--accent);margin:9px 0 3px}
+.small-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.small-actions button{flex:1;min-width:90px;border:1px solid #3e5466;background:#1e3146;color:#d9e8fa;border-radius:9px;padding:10px 5px;font-size:11px;font-weight:700}
+.notice{margin-top:10px;background:#132a39;border:1px solid #27536a;border-radius:10px;color:#bfd5e6;padding:10px;font-size:11px;line-height:1.55}.notice strong{color:var(--accent)}
+#file{display:none}.placeholder{position:absolute;z-index:1;top:37%;left:50%;transform:translate(-50%,-50%);text-align:center;width:min(86%,340px);pointer-events:none}.placeholder .art{width:76px;height:76px;margin:0 auto 13px;border-radius:20px;border:1px solid #6bdec06f;background:#64debe18;display:grid;place-items:center;font-size:38px}.placeholder h2{font-size:21px;margin:0 0 8px}.placeholder p{font-size:13px;line-height:1.55;color:#bfd0e0}
+.toast{position:absolute;z-index:40;left:50%;top:calc(env(safe-area-inset-top) + 173px);transform:translateX(-50%);max-width:86%;border-radius:10px;background:#25435b;border:1px solid #6886a0;color:white;padding:10px 13px;text-align:center;font-size:12px;line-height:1.4;display:none}.toast.show{display:block}
+.panel-hidden .panel{display:none}.help-shade{position:absolute;inset:0;z-index:30;background:#040b14bf;display:none;place-items:center;padding:17px}.help-shade.show{display:grid}.help{width:min(100%,470px);background:#192c40;border:1px solid #597089;border-radius:18px;padding:20px;max-height:85dvh;overflow:auto}.help h2{margin:0 0 8px;font-size:20px}.help li,.help p{font-size:13px;line-height:1.65;color:#d2e1ed}.help ol{padding-left:19px}.help button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--accent);font-weight:800;color:#092829}
+@media (min-width:760px){.panel{width:385px;left:auto;right:18px;bottom:18px;border:1px solid #ffffff30;border-radius:19px;max-height:calc(100dvh - 95px)}.guide{left:36%;}.status{left:36%}.placeholder{left:34%}}
+@media (max-height:650px) and (max-width:759px){.panel{max-height:62dvh}.guide{display:none}}
+</style>
+<!-- Để theo dõi không marker, dùng OpenCV.js (WebAssembly) tải từ máy chủ chính thức. -->
+<script async src="https://docs.opencv.org/4.10.0/opencv.js" onload="window.__openCvLoaded && window.__openCvLoaded()" onerror="window.__openCvError && window.__openCvError()"></script>
+</head>
+<body>
+<div class="app" id="app">
+  <main class="stage" id="stage">
+    <video id="camera" autoplay muted playsinline></video>
+    <div id="photoPlane"><div id="photoInner"><img id="photo" alt="Ảnh để vẽ theo"></div></div>
+    <svg id="quad" aria-hidden="true"><polygon id="polygon" points=""/><g id="dots"></g></svg>
+    <div class="placeholder" id="placeholder"><div class="art">✎</div><h2>AR Sketch • không cần mã</h2><p>Chọn ảnh, bật camera, chọn 4 góc mặt phẳng rồi khóa ảnh. Di chuyển máy để thử khả năng bám giấy.</p></div>
+  </main>
+  <header class="top"><div class="brand"><div class="mark">✎</div><div><b>AR Sketch</b><small>NEO ẢNH KHÔNG CẦN MARKER</small></div></div><button type="button" id="toggle">Ẩn công cụ</button></header>
+  <div class="guide" id="guide">Bước 1: Chọn ảnh và bật camera.</div>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Đang tải bộ theo dõi...</span></div>
+  <section class="panel" id="panel">
+    <div class="grip"></div>
+    <div class="actions">
+      <button class="action primary" id="choose">▧ Chọn ảnh</button>
+      <button class="action" id="startCamera">◎ Bật camera</button>
+      <button class="action" id="save" disabled>▣ Lưu hình</button>
+    </div>
+    <div class="track-actions">
+      <button class="action" id="selectCorners">① Chọn 4 góc</button>
+      <button class="action" id="anchor" disabled>⌖ Khóa vào mặt phẳng</button>
+    </div>
+    <div class="muted" id="selectionInfo">Không cần in mã. Chọn 4 góc vùng muốn neo theo thứ tự: trên trái → trên phải → dưới phải → dưới trái.</div>
+    <div class="label" style="margin-top:14px">Kiểu ảnh</div>
+    <div class="modes">
+      <button class="mode active" data-mode="original">Ảnh gốc</button>
+      <button class="mode" data-mode="outline">Nét phác</button>
+      <button class="mode" data-mode="gray">Đen trắng</button>
+    </div>
+    <div class="controls">
+      <div class="control"><div><label for="opacity">Độ đậm</label><output id="opacityOut">58%</output></div><input id="opacity" type="range" min="5" max="100" value="58"></div>
+      <div class="control"><div><label for="zoom">Kích thước ảnh</label><output id="zoomOut">100%</output></div><input id="zoom" type="range" min="20" max="280" value="100"></div>
+      <div class="control"><div><label for="x">Dịch ngang</label><output id="xOut">0%</output></div><input id="x" type="range" min="-100" max="100" value="0"></div>
+      <div class="control"><div><label for="y">Dịch dọc</label><output id="yOut">0%</output></div><input id="y" type="range" min="-100" max="100" value="0"></div>
+      <div class="control"><div><label for="rotation">Xoay ảnh</label><output id="rotationOut">0°</output></div><input id="rotation" type="range" min="-180" max="180" value="0"></div>
+      <div class="control"><div><label for="edge">Độ nhạy nét phác</label><output id="edgeOut">75</output></div><input id="edge" type="range" min="20" max="180" value="75"></div>
+    </div>
+    <div class="small-actions"><button id="undo">↶ Bỏ góc cuối</button><button id="unlock">↺ Bỏ neo</button><button id="switchCamera">⇄ Đổi camera</button><button id="helpOpen">? Hướng dẫn</button></div>
+    <div class="notice"><strong>Đặc điểm:</strong> Ứng dụng theo dõi chi tiết giấy/mặt bàn bằng optical flow và đối chiếu điểm ảnh ORB để tìm lại vùng đã khóa. Khi mất dấu, ảnh tạm ẩn. Đây là thử nghiệm Computer Vision, <strong>không phải ARCore SLAM</strong>; không đảm bảo khớp tuyệt đối khi quay khỏi vùng vẽ rồi quay lại.</div>
+  </section>
+  <input id="file" type="file" accept="image/*">
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="help-shade" id="helpShade" role="dialog" aria-modal="true"><div class="help"><h2>Hướng dẫn neo ảnh vào giấy</h2>
+    <ol><li>Tải một hình muốn vẽ, mở camera sau và cấp quyền camera.</li><li>Đưa toàn bộ tờ giấy/mặt phẳng vào khung hình, giữ điện thoại tương đối ổn định.</li><li>Nhấn <b>Chọn 4 góc</b>; lần lượt chạm vào góc trên trái, trên phải, dưới phải, dưới trái của vùng cần vẽ. Có thể chọn vùng trên mặt bàn, không nhất thiết là cả tờ giấy.</li><li>Nhấn <b>Khóa vào mặt phẳng</b>. Khi báo <b>Đang bám</b>, ảnh được tính phối cảnh theo camera.</li><li>Chỉnh kích thước, vị trí, xoay và độ đậm bằng thanh trượt. Nhấn <b>Ẩn công cụ</b> để xem rộng hơn.</li><li>Nếu quay camera đi khiến vùng neo biến mất, ảnh sẽ ẩn; khi quay lại ứng dụng sẽ cố gắng tìm lại. Nếu lệch, hãy chọn lại 4 góc và neo lại.</li></ol>
+    <p>Giấy có đường viền rõ, chữ, hoa văn riêng biệt và đủ ánh sáng dễ nhận diện hơn giấy trắng trơn hoặc lưới ô ly quá đều. Camera cần HTTPS hoặc localhost. OpenCV.js cần kết nối internet lúc tải.</p><button id="helpClose">Đã hiểu</button></div></div>
+</div>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const ui={app:$('app'),stage:$('stage'),video:$('camera'),plane:$('photoPlane'),inner:$('photoInner'),photo:$('photo'),poly:$('polygon'),dots:$('dots'),guide:$('guide'),status:$('status'),statusText:$('statusText'),placeholder:$('placeholder'),choose:$('choose'),file:$('file'),camera:$('startCamera'),save:$('save'),select:$('selectCorners'),anchor:$('anchor'),info:$('selectionInfo'),toggle:$('toggle'),undo:$('undo'),unlock:$('unlock'),switch:$('switchCamera'),helpOpen:$('helpOpen'),helpShade:$('helpShade'),helpClose:$('helpClose'),toast:$('toast'),opacity:$('opacity'),zoom:$('zoom'),x:$('x'),y:$('y'),rotation:$('rotation'),edge:$('edge')};
+const P_W=800,P_H=1100;const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+const state={stream:null,facing:'environment',ready:false,loadingCV:true,selecting:false,corners:[],anchored:false,visible:false,image:null,imageURL:null,imageMode:'original',derived:{},opacity:.58,zoom:1,x:0,y:0,rotation:0,edge:75,quad:null,frameAt:0};
+let noticeTimer;function notice(s){ui.toast.textContent=s;ui.toast.classList.add('show');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>ui.toast.classList.remove('show'),3800)}
+function setStatus(s,mode=''){ui.statusText.textContent=s;ui.status.className='status '+mode;}
+function setGuide(s){ui.guide.textContent=s;}
+function cleanQuadrilateral(pts){let a=0;for(let i=0;i<4;i++){let j=(i+1)%4;a+=pts[i].x*pts[j].y-pts[j].x*pts[i].y}return Math.abs(a)/2;}
+function quadValid(pts){if(pts.length!==4)return false;const polygonArea=cleanQuadrilateral(pts);if(polygonArea<650)return false;const cross=[];for(let i=0;i<4;i++){const a=pts[i],b=pts[(i+1)%4],c=pts[(i+2)%4];cross.push((b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x));}return cross.every(v=>v>0)||cross.every(v=>v<0);}
+function project(H,p){const w=H[6]*p.x+H[7]*p.y+H[8];if(Math.abs(w)<1e-8)return null;return{x:(H[0]*p.x+H[1]*p.y+H[2])/w,y:(H[3]*p.x+H[4]*p.y+H[5])/w};}
+function solveHomography(src,dst){const A=[];for(let i=0;i<4;i++){const {x:u,y:v}=src[i],{x,y}=dst[i];A.push([u,v,1,0,0,0,-u*x,-v*x,x]);A.push([0,0,0,u,v,1,-u*y,-v*y,y]);}for(let col=0;col<8;col++){let pivot=col;for(let row=col+1;row<8;row++)if(Math.abs(A[row][col])>Math.abs(A[pivot][col]))pivot=row;[A[col],A[pivot]]=[A[pivot],A[col]];if(Math.abs(A[col][col])<1e-9)return null;let div=A[col][col];for(let k=col;k<9;k++)A[col][k]/=div;for(let row=0;row<8;row++)if(row!==col){const m=A[row][col];for(let k=col;k<9;k++)A[row][k]-=m*A[col][k];}}const v=A.map(r=>r[8]);return[v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],1];}
+function getScreenMapping(){const r=ui.stage.getBoundingClientRect(),w=ui.video.videoWidth,h=ui.video.videoHeight;if(!w||!h)return null;const scale=Math.max(r.width/w,r.height/h);const dx=(r.width-w*scale)/2,dy=(r.height-h*scale)/2;return{scale,dx,dy,sw:r.width,sh:r.height,vw:w,vh:h};}
+function screenToVideo(x,y){const m=getScreenMapping();if(!m)return null;return{x:(x-m.dx)/m.scale,y:(y-m.dy)/m.scale};}
+function videoToScreen(p){const m=getScreenMapping();return m?{x:p.x*m.scale+m.dx,y:p.y*m.scale+m.dy}:null;}
+function getSurfaceCornersVideo(){return state.anchored?state.quad:state.corners;}
+function drawQuad(){const raw=getSurfaceCornersVideo();const screen=raw.map(videoToScreen);if(screen.some(p=>!p)){ui.poly.setAttribute('points','');ui.dots.innerHTML='';return;}
+  ui.poly.setAttribute('points',screen.map(p=>`${p.x},${p.y}`).join(' '));ui.poly.style.display=raw.length>=3?'':'none';
+  ui.dots.innerHTML=screen.map((p,i)=>`<circle cx="${p.x}" cy="${p.y}" r="7"/><text x="${p.x+11}" y="${p.y-9}">${i+1}</text>`).join('');
+  if(state.anchored&&!state.visible){ui.poly.style.display='none';ui.dots.innerHTML='';}}
+function drawPlane(){if(!state.image||!state.quad||!state.visible){ui.plane.style.display='none';drawQuad();return;}const sc=state.quad.map(videoToScreen);if(sc.some(p=>!p))return;
+  const rect=[{x:0,y:0},{x:P_W,y:0},{x:P_W,y:P_H},{x:0,y:P_H}];const H=solveHomography(rect,sc);if(!H)return;
+  const css=`matrix3d(${H[0]},${H[3]},0,${H[6]},${H[1]},${H[4]},0,${H[7]},0,0,1,0,${H[2]},${H[5]},0,${H[8]})`;
+  ui.plane.style.transform=css;ui.plane.style.opacity=state.opacity;ui.plane.style.display='block';updateImageTransform();drawQuad();}
+function updateImageTransform(){ui.inner.style.transform=`translate(${state.x*P_W}px,${state.y*P_H}px) rotate(${state.rotation}deg) scale(${state.zoom})`;}
+function refresh(){if(state.anchored)drawPlane();else{ui.plane.style.display='none';drawQuad();}}
+function updateButtons(){ui.select.classList.toggle('active',state.selecting);ui.select.textContent=state.selecting?'Đang chọn góc '+state.corners.length+'/4':'① Chọn 4 góc';ui.anchor.disabled=!state.stream||!state.image||state.corners.length!==4||!state.ready||state.anchored;ui.anchor.textContent=state.anchored?'✓ Đang neo':'⌖ Khóa vào mặt phẳng';ui.save.disabled=!state.stream||!state.visible||!state.image;ui.camera.textContent=state.stream?'■ Tắt camera':'◎ Bật camera';ui.placeholder.style.display=state.stream?'none':'';}
+async function setPicture(file){if(!file)return;if(!file.type.startsWith('image/')){notice('Vui lòng chọn ảnh JPG, PNG hoặc WebP.');return;}const url=URL.createObjectURL(file);const image=new Image();try{await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});}catch(e){URL.revokeObjectURL(url);notice('Không thể đọc ảnh.');return;}
+  if(state.imageURL)URL.revokeObjectURL(state.imageURL);state.imageURL=url;state.image=image;state.derived={};updatePictureMode();updateButtons();notice('Đã tải ảnh. Hãy chọn 4 góc vùng vẽ.');}
+function renderOutline(){if(!state.image)return null;const im=state.image,limit=1300,k=Math.min(1,limit/Math.max(im.naturalWidth,im.naturalHeight));const w=Math.max(1,Math.round(im.naturalWidth*k)),h=Math.max(1,Math.round(im.naturalHeight*k));const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;const c=canvas.getContext('2d',{willReadFrequently:true});c.drawImage(im,0,0,w,h);const pixels=c.getImageData(0,0,w,h),a=pixels.data,g=new Float32Array(w*h);for(let i=0;i<g.length;i++)g[i]=a[i*4]*.299+a[i*4+1]*.587+a[i*4+2]*.114;
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x, gx=-g[i-w-1]+g[i-w+1]-2*g[i-1]+2*g[i+1]-g[i+w-1]+g[i+w+1],gy=-g[i-w-1]-2*g[i-w]-g[i-w+1]+g[i+w-1]+2*g[i+w]+g[i+w+1],mag=Math.sqrt(gx*gx+gy*gy),p=4*i;a[p]=a[p+1]=a[p+2]=33;a[p+3]=mag>state.edge?230:0;}
+  c.putImageData(pixels,0,0);return canvas.toDataURL('image/png');}
+function updatePictureMode(){if(!state.image)return;const m=state.imageMode;if(m==='outline'){ui.photo.style.filter='none';ui.photo.src=renderOutline();}else if(m==='gray'){ui.photo.style.filter='grayscale(1)';ui.photo.src=state.imageURL;}else{ui.photo.style.filter='none';ui.photo.src=state.imageURL;}document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));drawPlane();}
+let outlineDebounce=null;
+function updateSlider(id,value){state[id]=value;const output=$(id+'Out');if(output)output.textContent=({opacity:Math.round(value*100)+'%',zoom:Math.round(value*100)+'%',x:Math.round(value*100)+'%',y:Math.round(value*100)+'%',rotation:Math.round(value)+'°',edge:Math.round(value)})[id];if(id==='edge'&&state.imageMode==='outline'){clearTimeout(outlineDebounce);outlineDebounce=setTimeout(updatePictureMode,110);}drawPlane();}
+const tracker={scale:1,canvas:document.createElement('canvas'),ctx:null,camCanvas:document.createElement('canvas'),camCtx:null,refGray:null,refPts:null,refDescriptors:null,refKeys:null,prevGray:null,flowPrev:null,flowRefs:[],orb:null,matcher:null,raf:0,lastTick:0,lastORB:0,lastFound:0,lastMatch:0,lastGood:0,busy:false,wasLost:false,frameCount:0};
+tracker.ctx=tracker.canvas.getContext('2d',{willReadFrequently:true});tracker.camCtx=tracker.camCanvas.getContext('2d',{willReadFrequently:true});
+function free(key){const val=tracker[key];if(val&&typeof val.delete==='function'){try{val.delete()}catch(_){}}tracker[key]=null;}
+function freeTracker(){['refGray','refPts','refDescriptors','refKeys','prevGray','flowPrev','orb','matcher'].forEach(free);tracker.flowRefs=[];tracker.lastORB=0;tracker.frameCount=0;}
+function initOpenCV(cvInstance){if(!cvInstance||!cvInstance.Mat)return;window.cv=cvInstance;state.ready=true;state.loadingCV=false;setStatus('Bộ theo dõi sẵn sàng','ok');updateButtons();}
+window.__openCvLoaded=()=>{const v=window.cv;if(!v)return;if(typeof v.then==='function'){v.then(initOpenCV).catch(()=>window.__openCvError());return;}if(v.Mat){initOpenCV(v);return;}v.onRuntimeInitialized=()=>initOpenCV(v);};
+window.__openCvError=()=>{state.loadingCV=false;setStatus('Không tải được OpenCV.js','bad');notice('Kiểm tra mạng internet, tải lại website để dùng tính năng neo.');};
+if(window.cv){window.__openCvLoaded()}else{setStatus('Đang tải OpenCV.js...');}
+setTimeout(()=>{if(!state.ready&&state.loadingCV){state.loadingCV=false;setStatus('Chưa tải được thư viện theo dõi','bad');notice('Không thể tải OpenCV.js. Kiểm tra mạng rồi tải lại trang HTTPS.');}},20000);
+function videoGray(){const w=Math.max(1,Math.round(ui.video.videoWidth*tracker.scale)),h=Math.max(1,Math.round(ui.video.videoHeight*tracker.scale));if(tracker.canvas.width!==w||tracker.canvas.height!==h){tracker.canvas.width=w;tracker.canvas.height=h;}
+  tracker.ctx.drawImage(ui.video,0,0,w,h);const rgba=cv.imread(tracker.canvas),gray=new cv.Mat();cv.cvtColor(rgba,gray,cv.COLOR_RGBA2GRAY);rgba.delete();return gray;}
+function polyScaled(points){return points.map(p=>({x:p.x*tracker.scale,y:p.y*tracker.scale}));}
+function maskFor(points,w,h,expanded=false){const mask=cv.Mat.zeros(h,w,cv.CV_8UC1);const poly=polyScaled(points);const cX=poly.reduce((s,p)=>s+p.x,0)/4,cY=poly.reduce((s,p)=>s+p.y,0)/4;const grow=expanded?1.10:1;const cvpoints=poly.map(p=>[Math.round(cX+(p.x-cX)*grow),Math.round(cY+(p.y-cY)*grow)]);
+  const vertices=cv.matFromArray(4,1,cv.CV_32SC2,cvpoints.flat());const polys=new cv.MatVector();polys.push_back(vertices);cv.fillPoly(mask,polys,new cv.Scalar(255));polys.delete();vertices.delete();return mask;}
+function maskFeatures(gray,points,maxFeatures=200){const mask=maskFor(points,gray.cols,gray.rows,true),pts=new cv.Mat();cv.goodFeaturesToTrack(gray,pts,maxFeatures,.009,6,mask,5,false,.04);mask.delete();return pts;}
+function toFlatMat(points){return cv.matFromArray(points.length,1,cv.CV_32FC2,points.flatMap(p=>[p.x,p.y]));}
+function matH(H){if(!H||H.empty())return null;const a=H.data64F&&H.data64F.length===9?H.data64F:H.data32F;return Array.from(a);}
+function evaluateH(H,w,h){if(!H)return null;const q=polyScaled(state.corners).map(p=>project(H,p));if(q.some(p=>!p||!Number.isFinite(p.x)||!Number.isFinite(p.y)))return null;
+  const area=cleanQuadrilateral(q),refArea=cleanQuadrilateral(polyScaled(state.corners));if(!quadValid(q)||area<450||area>Math.max(1,w*h*4)||area/refArea>8||area/refArea<.08)return null;
+  const lengths=q.map((p,i)=>Math.hypot(p.x-q[(i+1)%4].x,p.y-q[(i+1)%4].y));if(Math.min(...lengths)<15||Math.max(...lengths)/Math.min(...lengths)>12)return null;return q.map(p=>({x:p.x/tracker.scale,y:p.y/tracker.scale}));}
+function setTracked(quad,n){state.quad=quad;state.visible=true;tracker.lastFound=performance.now();tracker.lastGood=n;setStatus('Đang bám mặt phẳng • '+n+' điểm','ok');drawPlane();updateButtons();}
+function setLost(){if(!state.anchored)return;if(performance.now()-tracker.lastFound<380)return;if(state.visible){state.visible=false;drawPlane();}setStatus('Đang tìm lại mặt phẳng...');setGuide('Mất dấu. Hướng camera về vùng giấy đã khóa, giữ yên một chút.');updateButtons();}
+function initTracker(){const c=window.cv;if(!c||!c.Mat)throw Error('OpenCV.js chưa sẵn sàng');freeTracker();tracker.scale=Math.min(1,700/Math.max(ui.video.videoWidth,ui.video.videoHeight));const gray=videoGray();tracker.refGray=gray.clone();tracker.prevGray=gray.clone();
+  const pts=maskFeatures(gray,state.corners,240);if(pts.rows<12){pts.delete();gray.delete();throw Error('Ít điểm đặc trưng; hãy chọn vùng có chữ/đường viền/hoa văn và đủ sáng.');}
+  tracker.refPts=pts;tracker.flowPrev=pts.clone();tracker.flowRefs=Array.from({length:pts.rows},(_,i)=>({x:pts.data32F[2*i],y:pts.data32F[2*i+1]}));
+  tracker.orb=new cv.ORB(1150);tracker.refDescriptors=new cv.Mat();tracker.refKeys=new cv.KeyPointVector();const m=maskFor(state.corners,gray.cols,gray.rows,true);tracker.orb.detectAndCompute(gray,m,tracker.refKeys,tracker.refDescriptors);m.delete();tracker.matcher=new cv.BFMatcher(cv.NORM_HAMMING,false);gray.delete();
+  if(tracker.refDescriptors.empty()||tracker.refKeys.size()<14){notice('Vùng này ít chi tiết. Hãy đảm bảo thấy viền giấy và phần chữ.');}
+  tracker.lastFound=performance.now();tracker.lastTick=0;tracker.lastORB=0;tracker.wasLost=false;tracker.frameCount=0;state.quad=state.corners.map(p=>({...p}));state.visible=true;drawPlane();}
+function updateFlow(gray){if(!tracker.prevGray||!tracker.flowPrev||tracker.flowRefs.length<9)return false;
+  const cvPts=new cv.Mat(),status=new cv.Mat(),err=new cv.Mat();try{
+    cv.calcOpticalFlowPyrLK(tracker.prevGray,gray,tracker.flowPrev,cvPts,status,err,new cv.Size(25,25),3,new cv.TermCriteria(cv.TermCriteria_COUNT+cv.TermCriteria_EPS,25,.015));
+    const src=[],dst=[];for(let i=0;i<tracker.flowRefs.length;i++){if(status.data[i]!==1)continue;const x=cvPts.data32F[2*i],y=cvPts.data32F[2*i+1];if(x<0||y<0||x>=gray.cols||y>=gray.rows||err.data32F[i]>65)continue;src.push(tracker.flowRefs[i]);dst.push({x,y});}
+    if(src.length<9)return false;
+    const a=toFlatMat(src),b=toFlatMat(dst),inliers=new cv.Mat();let H=null;try{H=cv.findHomography(a,b,cv.RANSAC,3,inliers);}finally{a.delete();b.delete();}
+    const good=inliers.empty()?0:inliers.data.reduce((s,v)=>s+(v?1:0),0),q=evaluateH(matH(H),gray.cols,gray.rows);
+    if(H)H.delete();
+    if(good<8||good/src.length<.53||!q){inliers.delete();return false;}
+    const refValid=[],curValid=[];for(let i=0;i<src.length;i++)if(inliers.data[i]){refValid.push(src[i]);curValid.push(dst[i]);}inliers.delete();
+    free('flowPrev');tracker.flowPrev=toFlatMat(curValid);tracker.flowRefs=refValid;setTracked(q,good);return true;
+  }finally{cvPts.delete();status.delete();err.delete();}}
+function reidentify(gray){if(!tracker.refDescriptors||tracker.refDescriptors.empty()||!tracker.orb||!tracker.matcher)return false;
+  const k=new cv.KeyPointVector(),d=new cv.Mat(),empty=new cv.Mat(),matches=new cv.DMatchVectorVector();
+  try{tracker.orb.detectAndCompute(gray,empty,k,d);if(d.empty()||k.size()<10)return false;tracker.matcher.knnMatch(tracker.refDescriptors,d,matches,2);
+    const src=[],dst=[];for(let i=0;i<matches.size();i++){const pair=matches.get(i);try{if(pair.size()<2)continue;const a=pair.get(0),b=pair.get(1);if(a.distance>.82*b.distance||a.distance>85)continue;const r=tracker.refKeys.get(a.queryIdx),c=k.get(a.trainIdx);src.push({x:r.pt.x,y:r.pt.y});dst.push({x:c.pt.x,y:c.pt.y});}finally{pair.delete();}}
+    if(src.length<9)return false;const s=toFlatMat(src),t=toFlatMat(dst),inliers=new cv.Mat();let H;
+    try{H=cv.findHomography(s,t,cv.RANSAC,3,inliers);}finally{s.delete();t.delete();}
+    const good=inliers.empty()?0:inliers.data.reduce((sum,v)=>sum+(v?1:0),0),q=evaluateH(matH(H),gray.cols,gray.rows);if(H)H.delete();
+    if(good<8||good/src.length<.33||!q){inliers.delete();return false;}
+    const fr=[],fc=[];for(let i=0;i<src.length;i++)if(inliers.data[i]){fr.push(src[i]);fc.push(dst[i]);}inliers.delete();
+    free('flowPrev');tracker.flowPrev=toFlatMat(fc);tracker.flowRefs=fr;setTracked(q,good);setGuide('Đã nhận lại vùng neo. Di chuyển máy từ từ để ảnh bám ổn định.');return true;
+  }finally{k.delete();d.delete();empty.delete();matches.delete();}}
+function tick(t){tracker.raf=requestAnimationFrame(tick);if(!state.anchored||!state.stream||!state.ready||tracker.busy||ui.video.readyState<2)return;
+  if(t-tracker.lastTick<67)return;tracker.lastTick=t;tracker.busy=true;let gray;
+  try{gray=videoGray();const flowOK=updateFlow(gray);tracker.frameCount++;
+    if(!flowOK){free('flowPrev');tracker.flowRefs=[];setLost();}
+    const needORB= !flowOK? t-tracker.lastORB>440 : t-tracker.lastORB>1800;
+    if(needORB){tracker.lastORB=t;reidentify(gray);}
+    free('prevGray');tracker.prevGray=gray.clone();
+  }catch(err){console.error('[AR tracking]',err);setLost();if(performance.now()-tracker.lastMatch>3500){notice('Lỗi theo dõi: '+(err.message||err));tracker.lastMatch=performance.now();}}
+  finally{if(gray)gray.delete();tracker.busy=false;}
+}
+function resetAnchor(){state.anchored=false;state.visible=false;state.quad=null;state.corners=[];state.selecting=false;freeTracker();ui.plane.style.display='none';drawQuad();updateButtons();if(state.stream){setStatus('Camera sẵn sàng','ok');setGuide('Nhấn Chọn 4 góc để chỉ vùng mặt phẳng muốn neo.');}}
+async function startCamera(){if(state.stream){stopCamera();return;}try{
+    if(!navigator.mediaDevices?.getUserMedia)throw Error('Trình duyệt không hỗ trợ camera hoặc website chưa chạy HTTPS.');
+    const s=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:720}}});
+    ui.video.srcObject=s;state.stream=s;await ui.video.play();ui.stage.classList.add('online');setStatus(state.ready?'Camera sẵn sàng':'Đang tải bộ theo dõi...',state.ready?'ok':'');setGuide('Bước 2: Chọn 4 góc vùng vẽ, sau đó nhấn Khóa vào mặt phẳng.');updateButtons();
+  }catch(e){console.error(e);const msg=e.name==='NotAllowedError'?'Camera bị từ chối: kiểm tra quyền camera trong Chrome.':(e.message||'Không mở được camera');notice(msg);setStatus('Camera chưa bật','bad');}}
+function stopCamera(){resetAnchor();if(state.stream)state.stream.getTracks().forEach(t=>t.stop());state.stream=null;ui.video.srcObject=null;ui.stage.classList.remove('online');setStatus('Camera đã tắt');setGuide('Chọn ảnh và bật camera để bắt đầu.');updateButtons();}
+function chooseCorners(){if(!state.stream){notice('Hãy bật camera trước.');return;}resetAnchor();state.selecting=true;setGuide('Chạm góc 1: TRÊN TRÁI của vùng muốn neo.');ui.info.textContent='Hãy chạm 4 góc của giấy/khung vẽ theo thứ tự trên trái → trên phải → dưới phải → dưới trái.';updateButtons();}
+function onTap(e){if(!state.selecting||!state.stream||state.corners.length>=4)return;const r=ui.stage.getBoundingClientRect(),p=screenToVideo(e.clientX-r.left,e.clientY-r.top);if(!p)return;if(p.x<0||p.y<0||p.x>ui.video.videoWidth||p.y>ui.video.videoHeight){notice('Góc chọn nằm ngoài hình camera. Hãy di chuyển giấy vào giữa màn hình.');return;}
+  state.corners.push(p);const n=state.corners.length;if(n===4){state.selecting=false;if(!quadValid(state.corners)){notice('Bốn góc bị chéo hoặc vùng quá nhỏ. Hãy chọn lại đúng thứ tự.');state.corners=[];state.selecting=true;}else{setGuide('Đã chọn 4 góc. Bây giờ nhấn KHÓA VÀO MẶT PHẲNG.');ui.info.textContent='Đã nhận 4 góc. Giữ camera ổn định và bấm Khóa vào mặt phẳng.';}}else{const labels=['TRÊN TRÁI','TRÊN PHẢI','DƯỚI PHẢI','DƯỚI TRÁI'];setGuide(`Đã chọn ${n}/4. Chạm góc ${n+1}: ${labels[n]}.`);}refresh();updateButtons();}
+function makeAnchor(){if(!state.image){notice('Bạn chưa chọn ảnh.');return;}if(!state.ready){notice('Đang tải bộ theo dõi OpenCV.js, kiểm tra kết nối mạng.');return;}if(!state.stream||state.corners.length!==4)return;
+  try{initTracker();state.anchored=true;state.visible=true;state.selecting=false;setStatus('Đã neo • đang bám','ok');setGuide('Đã neo! Di chuyển máy từ từ. Quay khỏi giấy rồi quay lại để thử tìm lại.');updateButtons();if(!tracker.raf)tracker.raf=requestAnimationFrame(tick);}catch(err){console.error(err);notice(err.message||'Không tạo được neo.');resetAnchor();}}
+function selectMode(m){state.imageMode=m;updatePictureMode();}
+function cameraScreenshot(){if(!state.stream||!state.visible||!state.image||!state.quad)return;const mapping=getScreenMapping();const w=Math.round(mapping.sw),h=Math.round(mapping.sh),out=document.createElement('canvas');out.width=w;out.height=h;const ctx=out.getContext('2d');ctx.drawImage(ui.video,mapping.dx,mapping.dy,ui.video.videoWidth*mapping.scale,ui.video.videoHeight*mapping.scale);
+  const src=document.createElement('canvas');src.width=P_W;src.height=P_H;const sc=src.getContext('2d');sc.save();sc.translate(P_W/2+state.x*P_W,P_H/2+state.y*P_H);sc.rotate(state.rotation*Math.PI/180);sc.scale(state.zoom,state.zoom);const base=state.imageMode==='original'?state.image:ui.photo;const iw=base.naturalWidth,ih=base.naturalHeight,fit=Math.min(P_W/iw,P_H/ih);sc.globalAlpha=state.opacity;if(state.imageMode==='gray')sc.filter='grayscale(1)';sc.drawImage(base,-iw*fit/2,-ih*fit/2,iw*fit,ih*fit);sc.restore();
+  const H=solveHomography([{x:0,y:0},{x:P_W,y:0},{x:P_W,y:P_H},{x:0,y:P_H}],state.quad.map(videoToScreen));
+  if(!H)return;const columns=12,rows=18;
+  function triangle(a,b,c){const p=project(H,a),q=project(H,b),r=project(H,c);if(!p||!q||!r)return;const det=(b.x-a.x)*(c.y-a.y)-(c.x-a.x)*(b.y-a.y);if(Math.abs(det)<.001)return;
+    const A=((q.x-p.x)*(c.y-a.y)-(r.x-p.x)*(b.y-a.y))/det,B=((q.y-p.y)*(c.y-a.y)-(r.y-p.y)*(b.y-a.y))/det,C=((r.x-p.x)*(b.x-a.x)-(q.x-p.x)*(c.x-a.x))/det,D=((r.y-p.y)*(b.x-a.x)-(q.y-p.y)*(c.x-a.x))/det;
+    const E=p.x-A*a.x-C*a.y,F=p.y-B*a.x-D*a.y;ctx.save();ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.lineTo(r.x,r.y);ctx.closePath();ctx.clip();ctx.setTransform(A,B,C,D,E,F);ctx.drawImage(src,0,0);ctx.restore();}
+  for(let j=0;j<rows;j++)for(let i=0;i<columns;i++){const x=i*P_W/columns,y=j*P_H/rows,x2=(i+1)*P_W/columns,y2=(j+1)*P_H/rows;const a={x,y},b={x:x2,y},c={x:x2,y:y2},d={x,y:y2};triangle(a,b,c);triangle(a,c,d);}
+  out.toBlob(blob=>{if(!blob){notice('Không lưu được ảnh.');return;}const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download='AR-Sketch-'+new Date().toISOString().replace(/[:.]/g,'-')+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);notice('Đã tạo hình ảnh tổng hợp.');},'image/png');}
+ui.choose.addEventListener('click',()=>ui.file.click());ui.file.addEventListener('change',e=>setPicture(e.target.files?.[0]));ui.camera.addEventListener('click',startCamera);ui.select.addEventListener('click',chooseCorners);ui.stage.addEventListener('pointerup',onTap);ui.anchor.addEventListener('click',makeAnchor);
+ui.undo.addEventListener('click',()=>{if(state.anchored){notice('Bấm Bỏ neo trước khi sửa góc.');return;}if(state.corners.length){state.corners.pop();state.selecting=true;refresh();updateButtons();setGuide(`Đã bỏ góc. Chọn tiếp điểm ${state.corners.length+1}/4.`);}});
+ui.unlock.addEventListener('click',()=>{resetAnchor();notice('Đã bỏ neo. Bạn có thể chọn lại 4 góc.');});
+ui.switch.addEventListener('click',async()=>{state.facing=state.facing==='environment'?'user':'environment';if(state.stream){stopCamera();await startCamera();}notice('Đã đổi camera. Dùng camera sau để neo chính xác hơn.');});
+ui.toggle.addEventListener('click',()=>{ui.app.classList.toggle('panel-hidden');ui.toggle.textContent=ui.app.classList.contains('panel-hidden')?'Hiện công cụ':'Ẩn công cụ';});ui.helpOpen.addEventListener('click',()=>ui.helpShade.classList.add('show'));ui.helpClose.addEventListener('click',()=>ui.helpShade.classList.remove('show'));ui.helpShade.addEventListener('click',e=>{if(e.target===ui.helpShade)ui.helpShade.classList.remove('show');});
+ui.save.addEventListener('click',cameraScreenshot);document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>selectMode(b.dataset.mode)));
+for(const id of ['opacity','zoom','x','y','rotation','edge']){ui[id].addEventListener('input',e=>{let n=Number(e.target.value);if(id==='opacity')n/=100;if(id==='zoom')n/=100;if(id==='x'||id==='y')n/=100;updateSlider(id,n);});}
+window.addEventListener('resize',refresh);window.addEventListener('pagehide',()=>{if(state.stream)state.stream.getTracks().forEach(t=>t.stop());freeTracker();});
+updateButtons();
+// API kiểm thử cục bộ, không được sử dụng ngoài ứng dụng.
+window.__ARSketchDebug={getState:()=>({ready:state.ready,stream:!!state.stream,selecting:state.selecting,cornerCount:state.corners.length,anchored:state.anchored,visible:state.visible,trackedPoints:tracker.lastGood}),project,solveHomography};
+})();
+</script>
+</body>
+</html>
